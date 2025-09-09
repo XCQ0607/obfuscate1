@@ -1,0 +1,84 @@
+name: Obfuscate and Commit
+
+on:
+  push:
+    paths:
+      - 'js/**/*.js'
+  workflow_dispatch:
+
+jobs:
+  obfuscate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+
+      - name: Install dependencies
+        run: npm install javascript-obfuscator
+
+      - name: Create output directory
+        run: mkdir -p obfuscator
+
+      - name: Obfuscate JS files using code2 logic
+        run: |
+          find js -type f -name "*.js" | while read file; do
+            filename=$(basename "$file")
+            echo "Obfuscating $file to obfuscator/$filename"
+            
+            node -e "
+              const JavaScriptObfuscator = require('javascript-obfuscator');
+              const fs = require('fs');
+              
+              // 读取原始文件内容
+              const originalCode = fs.readFileSync('$file', 'utf8');
+              
+              // 使用代码2中的混淆配置
+              const obfuscationOptions = {
+                compact: true,
+                controlFlowFlattening: true,
+                controlFlowFlatteningThreshold: 0.75,
+                deadCodeInjection: true,
+                deadCodeInjectionThreshold: 0.4,
+                stringArray: true,
+                stringArray: true,
+                stringArrayEncoding: ['base64'],
+                stringArrayThreshold: 0.75,
+                renameGlobals: true,
+                identifierNamesGenerator: 'mangled',
+                numbersToExpressions: true,
+                splitStrings: true,
+                splitStringsChunkLength: 10,
+                transformObjectKeys: true,
+                selfDefending: false,
+                debugProtection: false
+              };
+              
+              // 执行混淆
+              const obfuscatedCode = JavaScriptObfuscator.obfuscate(originalCode, obfuscationOptions).getObfuscatedCode();
+              
+              // 写入到输出目录
+              fs.writeFileSync('obfuscator/$filename', obfuscatedCode, 'utf8');
+            "
+          done
+
+      - name: Commit changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add obfuscator/
+          git commit -m "Obfuscate JS files" || echo "No changes to commit"
+
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}

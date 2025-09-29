@@ -737,10 +737,57 @@ const byteToHex = [];
 for (let i = 0; i < 256; ++i) {
     byteToHex.push((i + 256).toString(16).slice(1));
 }
-
 function unsafeStringify(arr, offset = 0) {
     return (byteToHex[arr[offset + 0]] + byteToHex[arr[offset + 1]] + 
             byteToHex[arr[offset + 2]] + byteToHex[arr[offset + 3]] + "-" +
             byteToHex[arr[offset + 4]] + byteToHex[arr[offset + 5]] + "-" +
             byteToHex[arr[offset + 6]] + byteToHex[arr[offset + 7]] + "-" +
-            byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9
+            byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9]] + "-" +
+            byteToHex[arr[offset + 10]] + byteToHex[arr[offset + 11]] + 
+            byteToHex[arr[offset + 12]] + byteToHex[arr[offset + 13]] + 
+            byteToHex[arr[offset + 14]] + byteToHex[arr[offset + 15]]).toLowerCase();
+}
+
+function stringify(arr, offset = 0) {
+    const uuid = unsafeStringify(arr, offset);
+    if (!isValidUUID(uuid)) {
+        throw TypeError(`Invalid UUID: ${uuid}`);
+    }
+    return uuid;
+}
+
+async function parseList(content) {
+    const replaced = content.replace(/[\t|"'\r\n]+/g, ',').replace(/,+/g, ',');
+    let cleaned = replaced;
+    if (cleaned.charAt(0) == ',') cleaned = cleaned.slice(1);
+    if (cleaned.charAt(cleaned.length - 1) == ',') cleaned = cleaned.slice(0, -1);
+    return cleaned.split(',').filter(item => item.trim() !== '');
+}
+
+async function nginx() {
+    return `<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+<style>
+    body {
+        width: 35em;
+        margin: 0 auto;
+        font-family: Tahoma, Verdana, Arial, sans-serif;
+    }
+</style>
+</head>
+<body>
+<h1>Welcome to nginx!</h1>
+<p>If you see this page, the nginx web server is successfully installed and
+working. Further configuration is required.</p>
+
+<p>For online documentation and support please refer to
+<a href="http://nginx.org/">nginx.org</a>.<br/>
+Commercial support is available at
+<a href="http://nginx.com/">nginx.com</a>.</p>
+
+<p><em>Thank you for using nginx.</em></p>
+</body>
+</html>`;
+}

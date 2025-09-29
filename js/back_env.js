@@ -1,16 +1,13 @@
-// Cloudflare Worker - 核心代理后端
+// Cloudflare Worker - 简化版代理后端
 import { connect } from 'cloudflare:sockets';
 
 // ==================== 配置区域 ====================
 const DEFAULT_USER_ID = '2982f122-9649-40dc-bc15-fa3ec91d8921';
-const DEFAULT_ACCESS_KEY = 'xcq0607';
-const DEFAULT_HOSTNAME = 'test1.chinax.nyc.mn';
 const DEFAULT_PROXY_IPS = ["ProxyIP.JP.CMLiussss.net"];
 // ================================================
 
 let userID = '';
 let proxyIP = '';
-let DNS64Server = '';
 let socks5Address = '';
 let parsedSocks5Address = {};
 let enableSocks = false;
@@ -23,7 +20,6 @@ export default {
             // 初始化环境变量
             userID = env.UUID || env.uuid || env.PASSWORD || env.pswd || DEFAULT_USER_ID;
             proxyIP = env.PROXYIP || env.proxyip || '';
-            DNS64Server = env.DNS64 || env.NAT64 || 'dns64.cmliussss.net';
             socks5Address = env.HTTP || env.SOCKS5 || '';
 
             if (!userID) {
@@ -31,7 +27,7 @@ export default {
             }
 
             // 处理 ProxyIP
-            if ((!proxyIP || proxyIP === '') && !request.url.includes('nat64')) {
+            if (!proxyIP || proxyIP === '') {
                 proxyIP = DEFAULT_PROXY_IPS.join(',');
             }
             
@@ -80,27 +76,6 @@ export default {
             if (upgradeHeader && upgradeHeader === 'websocket') {
                 const url = new URL(request.url);
                 
-                // 解析 NAT64 参数
-                const nat64Param = url.searchParams.get('nat64');
-                if (nat64Param) {
-                    // 简化的 NAT64 服务商列表
-                    const NAT64_PROVIDERS = [
-                        { dns64: "2a00:1098:2b::1" },
-                        { dns64: "2a00:1098:2c::1" },
-                        { dns64: "2a01:4f8:c2c:123f::1" },
-                        { dns64: "2001:67c:2960::64" },
-                        { dns64: "2001:67c:2b0::4" },
-                        { dns64: "2602:fc59:b0:9e::64" },
-                        { dns64: "2602:fc59:11:1::64" },
-                        { dns64: "dns64.cmliussss.net" }
-                    ];
-                    
-                    const providerIndex = parseInt(nat64Param);
-                    if (providerIndex >= 0 && providerIndex < NAT64_PROVIDERS.length) {
-                        DNS64Server = NAT64_PROVIDERS[providerIndex].dns64;
-                    }
-                }
-
                 // 处理路径中的 proxyip 参数
                 if (url.searchParams.has('proxyip')) {
                     proxyIP = url.searchParams.get('proxyip');
@@ -161,10 +136,6 @@ async function vlessOverWSHandler(request, wsProxyIP, wsProxyPort) {
     const url = new URL(request.url);
     let localProxyIP = wsProxyIP || proxyIP;
     let localProxyPort = wsProxyPort || '443';
-    
-    // 检查是否使用 NAT64
-    const nat64Param = url.searchParams.get('nat64');
-    const useNAT64 = nat64Param !== null;
     
     // 处理 pyip 参数
     if (url.pathname.includes('/pyip=')) {
@@ -245,7 +216,7 @@ async function vlessOverWSHandler(request, wsProxyIP, wsProxyPort) {
             }
 
             handleTCPOutBound(remoteSocketWapper, addressType, addressRemote, portRemote, 
-                rawClientData, webSocket, vlessResponseHeader, log, localProxyIP, useNAT64);
+                rawClientData, webSocket, vlessResponseHeader, log, localProxyIP);
         },
         close() {
             log('readableWebSocketStream closed');
@@ -264,7 +235,7 @@ async function vlessOverWSHandler(request, wsProxyIP, wsProxyPort) {
 }
 
 async function handleTCPOutBound(remoteSocket, addressType, addressRemote, portRemote, 
-    rawClientData, webSocket, vlessResponseHeader, log, wsProxyIP, useNAT64 = false) {
+    rawClientData, webSocket, vlessResponseHeader, log, wsProxyIP) {
     
     async function useSocks5Pattern(address) {
         if (go2Socks5s.includes(atob('YWxsIGlu')) || go2Socks5s.includes(atob('Kg=='))) return true;
@@ -288,44 +259,9 @@ async function handleTCPOutBound(remoteSocket, addressType, addressRemote, portR
         return tcpSocket;
     }
 
-    async function nat64() {
-        try {
-            if (!useSocks) {
-                console.log('NAT64 mode - DNS64Server:', DNS64Server);
-                const nat64IPv6 = await resolveToIPv6(addressRemote);
-                const nat64Proxyip = `[${nat64IPv6}]`;
-                log(`NAT64 connecting to ${nat64Proxyip}:443`);
-                tcpSocket = await connectAndWrite(nat64Proxyip, '443');
-            }
-            
-            tcpSocket.closed.catch(error => {
-                console.log('NAT64 tcpSocket closed error', error);
-            }).finally(() => {
-                safeCloseWebSocket(webSocket);
-            });
-            
-            remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, null, log);
-        } catch (error) {
-            console.error('NAT64 connection failed:', error);
-            throw error;
-        }
-    }
-
     async function retry() {
         if (enableSocks) {
             tcpSocket = await connectAndWrite(addressRemote, portRemote, true, enableHttp);
-        } else if (useNAT64) {
-            log(`Retrying with NAT64 ${addressRemote}:${portRemote}`);
-            try {
-                return await nat64();
-            } catch (error) {
-                console.error('NAT64 retry failed:', error);
-                let useProxyIP = wsProxyIP || proxyIP;
-                if (!useProxyIP || useProxyIP == '') {
-                    useProxyIP = DEFAULT_PROXY_IPS[Math.floor(Math.random() * DEFAULT_PROXY_IPS.length)];
-                }
-                tcpSocket = await connectAndWrite(useProxyIP.toLowerCase() || addressRemote, portRemote);
-            }
         } else {
             let useProxyIP = wsProxyIP || proxyIP;
             if (!useProxyIP || useProxyIP == '') {
@@ -343,7 +279,7 @@ async function handleTCPOutBound(remoteSocket, addressType, addressRemote, portR
             tcpSocket = await connectAndWrite(useProxyIP.toLowerCase() || addressRemote, portRemote);
         }
         
-        remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, nat64, log);
+        remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, retry, log);
     }
 
     let useSocks = false;
@@ -352,25 +288,7 @@ async function handleTCPOutBound(remoteSocket, addressType, addressRemote, portR
     }
     
     let tcpSocket;
-    if (useNAT64) {
-        log(`First connection with NAT64 ${addressRemote}:${portRemote}`);
-        if (!useSocks) {
-            try {
-                const nat64IPv6 = await resolveToIPv6(addressRemote);
-                const nat64Proxyip = `[${nat64IPv6}]`;
-                log(`NAT64 connecting to ${nat64Proxyip}:443`);
-                tcpSocket = await connectAndWrite(nat64Proxyip, '443');
-            } catch (resolveError) {
-                console.error('NAT64 resolve failed, fallback to traditional proxy:', resolveError);
-                let useProxyIP = DEFAULT_PROXY_IPS[Math.floor(Math.random() * DEFAULT_PROXY_IPS.length)];
-                tcpSocket = await connectAndWrite(useProxyIP, portRemote, useSocks, enableHttp);
-            }
-        } else {
-            tcpSocket = await connectAndWrite(addressRemote, portRemote, useSocks, enableHttp);
-        }
-    } else {
-        tcpSocket = await connectAndWrite(addressRemote, portRemote, useSocks, enableHttp);
-    }
+    tcpSocket = await connectAndWrite(addressRemote, portRemote, useSocks, enableHttp);
 
     remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, retry, log);
 }
@@ -779,67 +697,6 @@ function socks5AddressParser(address) {
     return { username, password, hostname, port };
 }
 
-async function resolveToIPv6(target) {
-    function isIPv4(str) {
-        const parts = str.split('.');
-        return parts.length === 4 && parts.every(part => {
-            const num = parseInt(part, 10);
-            return num >= 0 && num <= 255 && part === num.toString();
-        });
-    }
-
-    function isIPv6(str) {
-        return str.includes(':') && /^[0-9a-fA-F:]+$/.test(str);
-    }
-
-    async function fetchIPv4(domain) {
-        const url = `https://cloudflare-dns.com/dns-query?name=${domain}&type=A`;
-        const response = await fetch(url, {
-            headers: { 'Accept': 'application/dns-json' }
-        });
-
-        if (!response.ok) throw new Error('DNS query failed');
-
-        const data = await response.json();
-        const ipv4s = (data.Answer || [])
-            .filter(record => record.type === 1)
-            .map(record => record.data);
-
-        if (ipv4s.length === 0) throw new Error('No IPv4 found');
-        return ipv4s[Math.floor(Math.random() * ipv4s.length)];
-    }
-
-    function convertToNAT64IPv6(ipv4Address) {
-        const parts = ipv4Address.split('.');
-        if (parts.length !== 4) throw new Error('Invalid IPv4');
-
-        const hex = parts.map(part => {
-            const num = parseInt(part, 10);
-            if (num < 0 || num > 255) throw new Error('Invalid IPv4 segment');
-            return num.toString(16).padStart(2, '0');
-        });
-
-        return DNS64Server.split('/96')[0] + hex[0] + hex[1] + ":" + hex[2] + hex[3];
-    }
-
-    try {
-        if (isIPv6(target)) return target;
-        const ipv4 = isIPv4(target) ? target : await fetchIPv4(target);
-        
-        if (DNS64Server.endsWith('/96')) {
-            return convertToNAT64IPv6(ipv4);
-        }
-        
-        // 默认转换
-        const parts = ipv4.split('.');
-        const hex = parts.map(p => parseInt(p, 10).toString(16).padStart(2, '0'));
-        return `64:ff9b::${hex[0]}${hex[1]}:${hex[2]}${hex[3]}`;
-    } catch (error) {
-        console.error('NAT64 resolve failed:', error);
-        throw new Error(`NAT64 resolve failed: ${error.message}`);
-    }
-}
-
 function base64ToArrayBuffer(base64Str) {
     if (!base64Str) return { earlyData: undefined, error: null };
     try {
@@ -886,52 +743,4 @@ function unsafeStringify(arr, offset = 0) {
             byteToHex[arr[offset + 2]] + byteToHex[arr[offset + 3]] + "-" +
             byteToHex[arr[offset + 4]] + byteToHex[arr[offset + 5]] + "-" +
             byteToHex[arr[offset + 6]] + byteToHex[arr[offset + 7]] + "-" +
-            byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9]] + "-" +
-            byteToHex[arr[offset + 10]] + byteToHex[arr[offset + 11]] + 
-            byteToHex[arr[offset + 12]] + byteToHex[arr[offset + 13]] + 
-            byteToHex[arr[offset + 14]] + byteToHex[arr[offset + 15]]).toLowerCase();
-}
-
-function stringify(arr, offset = 0) {
-    const uuid = unsafeStringify(arr, offset);
-    if (!isValidUUID(uuid)) {
-        throw TypeError(`Invalid UUID: ${uuid}`);
-    }
-    return uuid;
-}
-
-async function parseList(content) {
-    const replaced = content.replace(/[\t|"'\r\n]+/g, ',').replace(/,+/g, ',');
-    let cleaned = replaced;
-    if (cleaned.charAt(0) == ',') cleaned = cleaned.slice(1);
-    if (cleaned.charAt(cleaned.length - 1) == ',') cleaned = cleaned.slice(0, -1);
-    return cleaned.split(',').filter(item => item.trim() !== '');
-}
-
-async function nginx() {
-    return `<!DOCTYPE html>
-<html>
-<head>
-<title>Welcome to nginx!</title>
-<style>
-    body {
-        width: 35em;
-        margin: 0 auto;
-        font-family: Tahoma, Verdana, Arial, sans-serif;
-    }
-</style>
-</head>
-<body>
-<h1>Welcome to nginx!</h1>
-<p>If you see this page, the nginx web server is successfully installed and
-working. Further configuration is required.</p>
-
-<p>For online documentation and support please refer to
-<a href="http://nginx.org/">nginx.org</a>.<br/>
-Commercial support is available at
-<a href="http://nginx.com/">nginx.com</a>.</p>
-
-<p><em>Thank you for using nginx.</em></p>
-</body>
-</html>`;
-}
+            byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9

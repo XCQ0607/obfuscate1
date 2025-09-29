@@ -376,15 +376,26 @@ for (let i = 0; i < 256; ++i) {
 }
 
 function stringify(arr, offset = 0) {
+    // 确保输入是16字节的Uint8Array
+    if (arr.length - offset < 16) {
+        throw new Error('UUID二进制数据长度不足16字节');
+    }
+    const bytes = arr.subarray(offset, offset + 16); // 截取16字节
+    const hexParts = [];
+    for (let i = 0; i < 16; i++) {
+        hexParts.push(bytes[i].toString(16).padStart(2, '0'));
+    }
+    // 拼接UUID格式（8-4-4-4-12）
     const uuid = [
-        byteToHex[arr[offset + 0]] + byteToHex[arr[offset + 1]] + byteToHex[arr[offset + 2]] + byteToHex[arr[offset + 3]],
-        byteToHex[arr[offset + 4]] + byteToHex[arr[offset + 5]],
-        byteToHex[arr[offset + 6]] + byteToHex[arr[offset + 7]],
-        byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9]],
-        byteToHex[arr[offset + 10]] + byteToHex[arr[offset + 11]] + byteToHex[arr[offset + 12]] +
-        byteToHex[arr[offset + 13]] + byteToHex[arr[offset + 14]] + byteToHex[arr[offset + 15]]
-    ].join('-');
+        hexParts.slice(0, 4).join(''),
+        hexParts.slice(4, 6).join(''),
+        hexParts.slice(6, 8).join(''),
+        hexParts.slice(8, 10).join(''),
+        hexParts.slice(10, 16).join('')
+    ].join('-').toLowerCase();
 
-    if (!isValidUUID(uuid)) throw new Error('UUID转换失败');
+    if (!isValidUUID(uuid)) {
+        throw new Error(`UUID转换失败: ${uuid}`);
+    }
     return uuid;
 }

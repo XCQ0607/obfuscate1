@@ -17,6 +17,9 @@ let go2Socks5s = ['*ttvnw.net', '*tapecontent.net', '*cloudatacdn.com', '*.loads
 export default {
     async fetch(request, env, ctx) {
         try {
+            userID = DEFAULT_USER_ID;
+            proxyIP = DEFAULT_PROXY_IPS;
+            socks5Address = '';
 
             if (!userID) {
                 return new Response('Missing UUID configuration', { status: 400 });

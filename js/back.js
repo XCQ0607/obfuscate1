@@ -17,18 +17,10 @@ let go2Socks5s = ['*ttvnw.net', '*tapecontent.net', '*cloudatacdn.com', '*.loads
 export default {
     async fetch(request, env, ctx) {
         try {
+            // 直接使用默认配置，不读取env
             userID = DEFAULT_USER_ID;
-            proxyIP = DEFAULT_PROXY_IPS;
-            socks5Address = '';
-
-            if (!userID) {
-                return new Response('Missing UUID configuration', { status: 400 });
-            }
-
-            // 处理 ProxyIP
-            if (!proxyIP || proxyIP === '') {
-                proxyIP = DEFAULT_PROXY_IPS.join(',');
-            }
+            proxyIP = DEFAULT_PROXY_IPS.join(','); // 直接使用默认代理IP列表
+            socks5Address = ''; // 禁用从env读取SOCKS5配置
             
             if (proxyIP) {
                 const proxyIPs = await parseList(proxyIP);
@@ -42,7 +34,7 @@ export default {
                 enableHttp = socks5Address.toLowerCase().includes('http://');
                 socks5Address = socks5Address.split('//')[1] || socks5Address;
                 
-                if (env.GO2SOCKS5) go2Socks5s = await parseList(env.GO2SOCKS5);
+                let go2Socks5s = ['*ttvnw.net', '*tapecontent.net', '*cloudatacdn.com', '*.loadshare.org'];
                 
                 try {
                     parsedSocks5Address = socks5AddressParser(socks5Address);
@@ -263,17 +255,17 @@ async function handleTCPOutBound(remoteSocket, addressType, addressRemote, portR
             tcpSocket = await connectAndWrite(addressRemote, portRemote, true, enableHttp);
         } else {
             let useProxyIP = wsProxyIP || proxyIP;
-            if (!useProxyIP || useProxyIP == '') {
+            // 从默认列表随机选择（如果未通过URL参数指定）
+            if (!useProxyIP || useProxyIP === '') {
                 useProxyIP = DEFAULT_PROXY_IPS[Math.floor(Math.random() * DEFAULT_PROXY_IPS.length)];
-            } else if (useProxyIP.includes(']:')) {
-                portRemote = useProxyIP.split(']:')[1] || portRemote;
-                useProxyIP = useProxyIP.split(']:')[0] + "]" || useProxyIP;
-            } else if (useProxyIP.split(':').length === 2) {
-                portRemote = useProxyIP.split(':')[1] || portRemote;
-                useProxyIP = useProxyIP.split(':')[0] || useProxyIP;
             }
-            if (useProxyIP.includes('.tp')) {
-                portRemote = useProxyIP.split('.tp')[1].split('.')[0] || portRemote;
+            // 解析端口（保留基础端口处理，移除依赖env的特殊逻辑）
+            if (useProxyIP.includes(']:')) {
+                const lastColonIndex = useProxyIP.lastIndexOf(':');
+                portRemote = useProxyIP.slice(lastColonIndex + 1);
+                useProxyIP = useProxyIP.slice(0, lastColonIndex);
+            } else if (useProxyIP.split(':').length === 2) {
+                [useProxyIP, portRemote = '443'] = useProxyIP.split(':');
             }
             tcpSocket = await connectAndWrite(useProxyIP.toLowerCase() || addressRemote, portRemote);
         }

@@ -15,7 +15,7 @@ let enableHttp = false;
 let go2Socks5s = ['*ttvnw.net', '*tapecontent.net', '*cloudatacdn.com', '*.loadshare.org'];
 
 export default {
-    async fetch(request, env, ctx) {
+    async fetch(request, _, ctx) {
         try {
             // 直接使用默认配置，不读取env
             userID = DEFAULT_USER_ID;
